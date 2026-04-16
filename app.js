@@ -1,20 +1,46 @@
 /* ─────────────────────────────────────────────────────────────
-   Market Price Tracker — app.js
-   Sources:
-     • Crypto  → CoinGecko public API (free, no key required)
-     • Metals  → Metals-live via public commodity API
-     • Indices → Yahoo Finance via allorigins CORS proxy
+   Market Price Tracker — app.js (Uppdaterad version)
    ───────────────────────────────────────────────────────────── */
 
-const REFRESH_INTERVAL_MS = 60_000; // auto-refresh every 60 s
+const REFRESH_INTERVAL_MS = 300_000; // 5 minuter
+const CACHE_TIME_MS = 300_000;       // 5 minuter
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function fmt(value, opts = {}) {
-  const { currency = "USD", decimals = 2, compact = false } = opts;
-  if (compact && value >= 1_000_000) {
-    return (value / 1_000_000).toFixed(2) + "M";
+async function fetchWithTimeout(resource, options = {}) {
+  const { timeout = 10000 } = options; // 10 sekunder timeout
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(resource, { ...options, signal: controller.signal });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
   }
+}
+
+function getCachedData(key) {
+  try {
+    const cached = localStorage.getItem(key);
+    if (!cached) return null;
+    const { data, timestamp } = JSON.parse(cached);
+    if (Date.now() - timestamp > CACHE_TIME_MS) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+function setCachedData(key, data) {
+  try {
+    const payload = { data, timestamp: Date.now() };
+    localStorage.setItem(key, JSON.stringify(payload));
+  } catch (e) {}
+}
+
+function fmt(value, opts = {}) {
+  const { currency = "USD", decimals = 2 } = opts;
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
@@ -32,189 +58,139 @@ function fmtChange(pct) {
 function makeCard(name, priceStr, changeObj) {
   const card = document.createElement("div");
   card.className = "card";
-  const badge = changeObj
-    ? `<span class="badge ${changeObj.cls}">${changeObj.text}</span>`
-    : "";
-  card.innerHTML = `
-    <div class="card-name">${name}</div>
-    <div class="card-price">${priceStr}</div>
-    ${badge}
-  `;
+  const badge = changeObj ? `<span class="badge ${changeObj.cls}">${changeObj.text}</span>` : "";
+  card.innerHTML = `<div class="card-name">${name}</div><div class="card-price">${priceStr}</div>${badge}`;
   return card;
 }
 
-function makeErrorCard(name, message = "Unavailable") {
+function makeErrorCard(name) {
   const card = document.createElement("div");
   card.className = "card";
-  card.innerHTML = `
-    <div class="card-name">${name}</div>
-    <div class="card-price">—</div>
-    <div class="card-error">${message}</div>
-  `;
+  card.innerHTML = `<div class="card-name">${name}</div><div class="card-price">—</div><div class="card-error">Unavailable</div>`;
   return card;
 }
 
 function setGrid(id, cards) {
   const grid = document.getElementById(id);
-  grid.innerHTML = "";
-  cards.forEach(c => grid.appendChild(c));
+  if (grid) {
+    grid.innerHTML = "";
+    cards.forEach(c => grid.appendChild(c));
+  }
 }
 
 function setSkeletons(id, n) {
   const grid = document.getElementById(id);
-  grid.innerHTML = Array(n).fill('<div class="card skeleton"></div>').join("");
+  if (grid) grid.innerHTML = Array(n).fill('<div class="card skeleton"></div>').join("");
 }
 
-// ── Crypto (CoinGecko) ────────────────────────────────────────
+// ── Crypto (Endast Bitcoin) ──────────────────────────────────
 
 async function fetchCrypto() {
-  const ids = "bitcoin,ethereum,solana,ripple";
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("CoinGecko error");
-  return res.json();
+  const cacheKey = "crypto_cache";
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true`;
+  const res = await fetchWithTimeout(url);
+  const data = await res.json();
+  setCachedData(cacheKey, data);
+  return data;
 }
 
 function buildCryptoCards(data) {
-  const map = {
-    bitcoin:  { label: "Bitcoin (BTC)",   decimals: 0 },
-    ethereum: { label: "Ethereum (ETH)",  decimals: 0 },
-    solana:   { label: "Solana (SOL)",    decimals: 2 },
-    ripple:   { label: "XRP",             decimals: 4 },
-  };
-  return Object.entries(map).map(([id, { label, decimals }]) => {
-    const d = data[id];
-    if (!d) return makeErrorCard(label);
-    const price = fmt(d.usd, { decimals });
-    const change = fmtChange(d.usd_24h_change);
-    return makeCard(label, price, change);
-  });
+  const btc = data.bitcoin;
+  if (!btc) return [makeErrorCard("Bitcoin")];
+  return [makeCard("Bitcoin (BTC)", fmt(btc.usd, { decimals: 0 }), fmtChange(btc.usd_24h_change))];
 }
 
-// ── Metals (via Frankfurter / gold price workaround) ──────────
-// We use the free metals.live API which returns XAU and XAG in USD
+// ── Metals (Guld & Silver) ───────────────────────────────────
 
 async function fetchMetals() {
-  // metals.live free API — no key required
-  const url = "https://api.metals.live/v1/spot/gold,silver,platinum";
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Metals API error");
-  return res.json();
+  const cacheKey = "metals_cache";
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
+  const url = "https://api.metals.live/v1/spot/gold,silver";
+  const res = await fetchWithTimeout(url);
+  const data = await res.json();
+  setCachedData(cacheKey, data);
+  return data;
 }
 
 function buildMetalCards(data) {
-  // Response is an array like: [{gold: 2300.5}, {silver: 27.2}, ...]
   const flat = {};
   data.forEach(obj => Object.assign(flat, obj));
-
   const metals = [
-    { key: "gold",     label: "Gold (oz)",     decimals: 2 },
-    { key: "silver",   label: "Silver (oz)",   decimals: 2 },
-    { key: "platinum", label: "Platinum (oz)", decimals: 2 },
+    { key: "gold", label: "Gold (oz)" },
+    { key: "silver", label: "Silver (oz)" }
   ];
-
-  return metals.map(({ key, label, decimals }) => {
-    const price = flat[key];
-    if (!price) return makeErrorCard(label);
-    return makeCard(label, fmt(price, { decimals }), null);
-  });
+  return metals.map(m => flat[m.key] ? makeCard(m.label, fmt(flat[m.key]), null) : makeErrorCard(m.label));
 }
 
-// ── Indices & Commodities (Yahoo Finance via AllOrigins) ──────
+// ── Indices & Forex (Yahoo via AllOrigins) ───────────────────
 
 async function fetchYahoo(symbol) {
-  const encoded = encodeURIComponent(
-    `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`
-  );
+  const cacheKey = `yahoo_cache_${symbol}`;
+  const cached = getCachedData(cacheKey);
+  if (cached) return cached;
+
+  const encoded = encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`);
   const url = `https://api.allorigins.win/get?url=${encoded}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Proxy error");
+  const res = await fetchWithTimeout(url);
   const wrapper = await res.json();
   const json = JSON.parse(wrapper.contents);
   const result = json.chart.result[0];
   const closes = result.indicators.quote[0].close.filter(Boolean);
   const latest = closes[closes.length - 1];
-  const prev = closes[closes.length - 2] ?? closes[closes.length - 1];
-  const changePct = ((latest - prev) / prev) * 100;
-  return { price: latest, changePct };
+  const prev = closes[closes.length - 2] ?? latest;
+  const data = { price: latest, changePct: ((latest - prev) / prev) * 100 };
+  setCachedData(cacheKey, data);
+  return data;
 }
 
 async function fetchIndices() {
   const symbols = [
-    { symbol: "^GSPC",  label: "S&P 500",     decimals: 0 },
-    { symbol: "^IXIC",  label: "NASDAQ",       decimals: 0 },
-    { symbol: "CL=F",   label: "Oil (WTI)",    decimals: 2 },
+    { symbol: "^GSPC",  label: "S&P 500",  decimals: 0 },
+    { symbol: "^IXIC",  label: "NASDAQ",   decimals: 0 },
+    { symbol: "CL=F",   label: "Oil (WTI)", decimals: 2 },
+    { symbol: "SEK=X",  label: "USD/SEK",  decimals: 4 } // Valutaväxling
   ];
 
-  return Promise.allSettled(
-    symbols.map(async (s) => {
-      const data = await fetchYahoo(s.symbol);
-      return { ...s, ...data };
-    })
-  ).then(results =>
-    results.map((r, i) => {
+  return Promise.allSettled(symbols.map(s => fetchYahoo(s.symbol).then(d => ({ ...s, ...d }))))
+    .then(results => results.map((r, i) => {
       if (r.status === "rejected") return makeErrorCard(symbols[i].label);
       const { label, price, changePct, decimals } = r.value;
-      const change = fmtChange(changePct);
-      const priceStr = label.includes("S&P") || label.includes("NASDAQ")
-        ? price.toLocaleString("en-US", { maximumFractionDigits: 0 })
-        : fmt(price, { decimals });
-      return makeCard(label, priceStr, change);
-    })
-  );
+      const pStr = (label === "S&P 500" || label === "NASDAQ") 
+        ? price.toLocaleString("en-US", { maximumFractionDigits: 0 }) 
+        : price.toFixed(decimals);
+      return makeCard(label, label === "USD/SEK" ? price.toFixed(4) + " kr" : fmt(price, { decimals }), fmtChange(changePct));
+    }));
 }
 
-// ── Main fetch orchestration ──────────────────────────────────
+// ── Main Orchestration ───────────────────────────────────────
 
 async function fetchAll() {
   const btn = document.getElementById("refresh-btn");
-  btn.classList.add("loading");
+  if (btn) btn.classList.add("loading");
 
-  setSkeletons("crypto-grid", 4);
-  setSkeletons("metals-grid", 3);
-  setSkeletons("indices-grid", 3);
+  setSkeletons("crypto-grid", 1);
+  setSkeletons("metals-grid", 2);
+  setSkeletons("indices-grid", 4);
 
-  // Run all in parallel
-  const [cryptoResult, metalsResult, indicesResult] = await Promise.allSettled([
-    fetchCrypto(),
-    fetchMetals(),
-    fetchIndices(),
-  ]);
+  const p1 = fetchCrypto().then(d => setGrid("crypto-grid", buildCryptoCards(d))).catch(() => setGrid("crypto-grid", [makeErrorCard("Bitcoin")]));
+  const p2 = fetchMetals().then(d => setGrid("metals-grid", buildMetalCards(d))).catch(() => setGrid("metals-grid", [makeErrorCard("Gold"), makeErrorCard("Silver")]));
+  const p3 = fetchIndices().then(cards => setGrid("indices-grid", cards)).catch(() => {});
 
-  // Crypto
-  if (cryptoResult.status === "fulfilled") {
-    setGrid("crypto-grid", buildCryptoCards(cryptoResult.value));
-  } else {
-    setGrid("crypto-grid", [
-      makeErrorCard("Bitcoin"), makeErrorCard("Ethereum"),
-      makeErrorCard("Solana"),  makeErrorCard("XRP"),
-    ]);
-    console.error("Crypto fetch failed:", cryptoResult.reason);
-  }
+  await Promise.allSettled([p1, p2, p3]);
 
-  // Metals
-  if (metalsResult.status === "fulfilled") {
-    setGrid("metals-grid", buildMetalCards(metalsResult.value));
-  } else {
-    setGrid("metals-grid", [
-      makeErrorCard("Gold (oz)"), makeErrorCard("Silver (oz)"), makeErrorCard("Platinum (oz)"),
-    ]);
-    console.error("Metals fetch failed:", metalsResult.reason);
-  }
-
-  // Indices
-  setGrid("indices-grid", await indicesResult.value ?? [
-    makeErrorCard("S&P 500"), makeErrorCard("NASDAQ"), makeErrorCard("Oil (WTI)"),
-  ]);
-
-  // Update timestamp
-  document.getElementById("updated-time").textContent =
-    "Last updated: " + new Date().toLocaleTimeString();
-
-  btn.classList.remove("loading");
+  const timeEl = document.getElementById("updated-time");
+  if (timeEl) timeEl.textContent = "Senast uppdaterad: " + new Date().toLocaleTimeString();
+  if (btn) btn.classList.remove("loading");
 }
 
-// ── Auto-refresh ──────────────────────────────────────────────
+// Event Listeners
+const refreshBtn = document.getElementById("refresh-btn");
+if (refreshBtn) refreshBtn.addEventListener("click", () => { localStorage.clear(); fetchAll(); });
 
 fetchAll();
 setInterval(fetchAll, REFRESH_INTERVAL_MS);
