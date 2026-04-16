@@ -1,0 +1,194 @@
+/* ── Reset & base ────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #f8f8f6;
+  --surface:   #ffffff;
+  --border:    rgba(0,0,0,0.10);
+  --text:      #1a1a18;
+  --muted:     #6b6b66;
+  --hint:      #9e9e98;
+  --up:        #0f6e56;
+  --up-bg:     #e1f5ee;
+  --down:      #a32d2d;
+  --down-bg:   #fcebeb;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:      #1c1c1a;
+    --surface: #262624;
+    --border:  rgba(255,255,255,0.10);
+    --text:    #f0f0ec;
+    --muted:   #9e9e98;
+    --hint:    #6b6b66;
+    --up:      #5dcaa5;
+    --up-bg:   #04342c;
+    --down:    #f09595;
+    --down-bg: #501313;
+  }
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── Header ──────────────────────────────────────── */
+header {
+  background: var(--surface);
+  border-bottom: 0.5px solid var(--border);
+  padding: 1.25rem 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.header-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+header h1 {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── Refresh button ──────────────────────────────── */
+#refresh-btn {
+  background: transparent;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+#refresh-btn:hover { background: rgba(0,0,0,0.05); }
+#refresh-btn:active { transform: scale(0.97); }
+#refresh-btn.loading #refresh-icon { display: inline-block; animation: spin 0.8s linear infinite; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Main layout ─────────────────────────────────── */
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.section { margin-bottom: 2rem; }
+
+.section-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.75rem;
+}
+
+/* ── Grid & cards ────────────────────────────────── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  min-height: 110px;
+}
+
+/* Skeleton loader */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--border) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-color: transparent;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.card-name {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-price {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 9px;
+  border-radius: 99px;
+}
+.badge.up   { background: var(--up-bg);   color: var(--up);   }
+.badge.down { background: var(--down-bg); color: var(--down); }
+.badge.flat { background: rgba(0,0,0,0.06); color: var(--muted); }
+
+.card-error {
+  font-size: 12px;
+  color: var(--down);
+  margin-top: 4px;
+}
+
+/* ── Updated timestamp ───────────────────────────── */
+.updated {
+  font-size: 12px;
+  color: var(--hint);
+  margin-top: 0.5rem;
+}
+
+/* ── Footer ──────────────────────────────────────── */
+footer {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+  font-size: 12px;
+  color: var(--hint);
+}
+footer a { color: var(--muted); }
+footer a:hover { color: var(--text); }
+
+/* ── Responsive ──────────────────────────────────── */
+@media (max-width: 480px) {
+  main, footer { padding-left: 1rem; padding-right: 1rem; }
+  .header-inner { flex-direction: column; align-items: flex-start; }
+  .card-price { font-size: 19px; }
+}

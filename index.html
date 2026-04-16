@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Market Prices — Live Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>Market prices</h1>
+        <p class="subtitle">Live crypto, metals &amp; indices</p>
+      </div>
+      <button id="refresh-btn" onclick="fetchAll()">
+        <span id="refresh-icon">↺</span> Refresh
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <h2 class="section-title">Cryptocurrency</h2>
+      <div class="grid" id="crypto-grid">
+        <div class="card skeleton"></div>
+        <div class="card skeleton"></div>
+        <div class="card skeleton"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Precious metals</h2>
+      <div class="grid" id="metals-grid">
+        <div class="card skeleton"></div>
+        <div class="card skeleton"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Indices &amp; commodities</h2>
+      <div class="grid" id="indices-grid">
+        <div class="card skeleton"></div>
+        <div class="card skeleton"></div>
+        <div class="card skeleton"></div>
+      </div>
+    </section>
+
+    <p class="updated" id="updated-time">Fetching prices…</p>
+  </main>
+
+  <footer>
+    <p>Data: <a href="https://www.coingecko.com" target="_blank">CoinGecko</a> &amp; <a href="https://open.er-api.com" target="_blank">Open Exchange Rates</a>. Refreshes every 60 seconds.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
