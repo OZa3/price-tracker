@@ -27,7 +27,6 @@ function getCachedData(key) {
   } catch { return null; }
 }
 
-// ✅ NY: returnerar cachad data även om den är gammal (för omedelbar visning)
 function getStaleData(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -101,40 +100,30 @@ function buildCryptoCards(data) {
   return [makeCard("Bitcoin (BTC)", fmt(btc.usd, { decimals: 0 }), fmtChange(btc.usd_24h_change))];
 }
 
-// ── Metals ────────────────────────────────────────────────────
-
-async function fetchMetals() {
-  const key = "metals_cache";
-  const cached = getCachedData(key);
-  if (cached) return cached;
-  const res = await fetchWithTimeout("https://api.metals.live/v1/spot/gold,silver");
-  const data = await res.json();
-  setCachedData(key, data);
-  return data;
-}
-
-function buildMetalCards(data) {
-  const flat = {};
-  data.forEach(obj => Object.assign(flat, obj));
-  return [
-    { key: "gold",   label: "Gold (oz)"   },
-    { key: "silver", label: "Silver (oz)" },
-  ].map(m => flat[m.key] ? makeCard(m.label, fmt(flat[m.key]), null) : makeErrorCard(m.label));
-}
-
-// ── Indices (Yahoo Finance) ───────────────────────────────────
-// ✅ Bytt proxy: corsproxy.io är snabbare och mer stabil än allorigins.win
+// ── Yahoo Finance (används för metals + indices) ──────────────
 
 async function fetchYahoo(symbol) {
   const key = `yahoo_${symbol}`;
   const cached = getCachedData(key);
   if (cached) return cached;
 
-  // Primär proxy
   const target = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
-  const url = `https://corsproxy.io/?${encodeURIComponent(target)}`;
-  const res = await fetchWithTimeout(url);
-  const json = await res.json();
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(target)}`,
+    `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`,
+  ];
+
+  let json = null;
+  for (const url of proxies) {
+    try {
+      const res = await fetchWithTimeout(url);
+      const wrapper = await res.json();
+      // allorigins wrapppar svaret i { contents: "..." }
+      json = wrapper.contents ? JSON.parse(wrapper.contents) : wrapper;
+      break;
+    } catch {}
+  }
+  if (!json) throw new Error(`All proxies failed for ${symbol}`);
 
   const result = json.chart.result[0];
   const closes = result.indicators.quote[0].close.filter(Boolean);
@@ -145,9 +134,27 @@ async function fetchYahoo(symbol) {
   return data;
 }
 
+// ── Metals ────────────────────────────────────────────────────
+
+const METAL_SYMBOLS = [
+  { symbol: "GC=F", label: "Gold (oz)",   decimals: 2 },
+  { symbol: "SI=F", label: "Silver (oz)", decimals: 2 },
+];
+
+async function fetchMetals() {
+  const results = await Promise.allSettled(
+    METAL_SYMBOLS.map(s => fetchYahoo(s.symbol).then(d => ({ ...s, ...d })))
+  );
+  return results.map((r, i) => {
+    if (r.status === "rejected") return makeErrorCard(METAL_SYMBOLS[i].label);
+    const { label, price, decimals } = r.value;
+    return makeCard(label, fmt(price, { decimals }), null);
+  });
+}
+
+// ── Indices ───────────────────────────────────────────────────
+
 const SYMBOLS = [
-  { symbol: "^GSPC", label: "S&P 500",   decimals: 0 },
-  { symbol: "^IXIC", label: "NASDAQ",    decimals: 0 },
   { symbol: "CL=F",  label: "Oil (WTI)", decimals: 2 },
   { symbol: "SEK=X", label: "USD/SEK",   decimals: 4 },
 ];
@@ -159,42 +166,46 @@ async function fetchIndices() {
   return results.map((r, i) => {
     if (r.status === "rejected") return makeErrorCard(SYMBOLS[i].label);
     const { label, price, changePct, decimals } = r.value;
-    const isIndex = label === "S&P 500" || label === "NASDAQ";
     const priceStr = label === "USD/SEK"
       ? price.toFixed(4) + " kr"
-      : isIndex
-        ? price.toLocaleString("en-US", { maximumFractionDigits: 0 })
-        : fmt(price, { decimals });
+      : fmt(price, { decimals });
     return makeCard(label, priceStr, fmtChange(changePct));
   });
 }
 
-// ── ✅ NY: Visa cachad (stale) data direkt vid sidladdning ────
+// ── Visa cachad data direkt vid sidladdning ───────────────────
 
 function renderFromCache() {
-  const cryptoStale  = getStaleData("crypto_cache");
-  const metalsStale  = getStaleData("metals_cache");
+  // Crypto
+  const cryptoStale = getStaleData("crypto_cache");
+  if (cryptoStale) setGrid("crypto-grid", buildCryptoCards(cryptoStale));
 
-  if (cryptoStale) setGrid("crypto-grid",  buildCryptoCards(cryptoStale));
-  if (metalsStale) setGrid("metals-grid",  buildMetalCards(metalsStale));
+  // Metals
+  METAL_SYMBOLS.forEach(({ symbol, label, decimals }) => {
+    const d = getStaleData(`yahoo_${symbol}`);
+    if (!d) return;
+    const grid = document.getElementById("metals-grid");
+    if (!grid) return;
+    const idx = METAL_SYMBOLS.findIndex(s => s.symbol === symbol);
+    const skeleton = grid.children[idx];
+    if (skeleton?.classList.contains("skeleton")) {
+      grid.replaceChild(makeCard(label, fmt(d.price, { decimals }), null), skeleton);
+    }
+  });
 
+  // Indices
   SYMBOLS.forEach(({ symbol, label, decimals }) => {
     const d = getStaleData(`yahoo_${symbol}`);
     if (!d) return;
-    const isIndex = label === "S&P 500" || label === "NASDAQ";
     const priceStr = label === "USD/SEK"
       ? d.price.toFixed(4) + " kr"
-      : isIndex
-        ? d.price.toLocaleString("en-US", { maximumFractionDigits: 0 })
-        : fmt(d.price, { decimals });
-    // Ersätt rätt skeleton-kort i indexgriddet med känd data
+      : fmt(d.price, { decimals });
     const grid = document.getElementById("indices-grid");
-    if (grid) {
-      const idx = SYMBOLS.findIndex(s => s.symbol === symbol);
-      const skeleton = grid.children[idx];
-      if (skeleton?.classList.contains("skeleton")) {
-        grid.replaceChild(makeCard(label, priceStr, fmtChange(d.changePct)), skeleton);
-      }
+    if (!grid) return;
+    const idx = SYMBOLS.findIndex(s => s.symbol === symbol);
+    const skeleton = grid.children[idx];
+    if (skeleton?.classList.contains("skeleton")) {
+      grid.replaceChild(makeCard(label, priceStr, fmtChange(d.changePct)), skeleton);
     }
   });
 }
@@ -205,25 +216,25 @@ async function fetchAll(silent = false) {
   const btn = document.getElementById("refresh-btn");
   if (btn) btn.classList.add("loading");
 
-  // Visa endast skeletons för sektioner utan cachad data
   if (!silent) {
-    if (!getStaleData("crypto_cache"))   setSkeletons("crypto-grid", 1);
-    if (!getStaleData("metals_cache"))   setSkeletons("metals-grid", 2);
+    if (!getStaleData("crypto_cache")) setSkeletons("crypto-grid", 1);
+    const hasAllMetals  = METAL_SYMBOLS.every(s => getStaleData(`yahoo_${s.symbol}`));
     const hasAllIndices = SYMBOLS.every(s => getStaleData(`yahoo_${s.symbol}`));
-    if (!hasAllIndices) setSkeletons("indices-grid", SYMBOLS.length);
+    if (!hasAllMetals)  setSkeletons("metals-grid",  METAL_SYMBOLS.length);
+    if (!hasAllIndices) setSkeletons("indices-grid",  SYMBOLS.length);
   }
 
   const p1 = fetchCrypto()
-    .then(d  => setGrid("crypto-grid",  buildCryptoCards(d)))
-    .catch(() => setGrid("crypto-grid", [makeErrorCard("Bitcoin")]));
+    .then(d     => setGrid("crypto-grid",  buildCryptoCards(d)))
+    .catch(()   => setGrid("crypto-grid",  [makeErrorCard("Bitcoin")]));
 
   const p2 = fetchMetals()
-    .then(d  => setGrid("metals-grid",  buildMetalCards(d)))
-    .catch(() => setGrid("metals-grid", [makeErrorCard("Gold"), makeErrorCard("Silver")]));
+    .then(cards => setGrid("metals-grid",  cards))
+    .catch(()   => setGrid("metals-grid",  [makeErrorCard("Gold"), makeErrorCard("Silver")]));
 
   const p3 = fetchIndices()
     .then(cards => setGrid("indices-grid", cards))
-    .catch(() => {});
+    .catch(()   => {});
 
   await Promise.allSettled([p1, p2, p3]);
 
@@ -237,28 +248,16 @@ async function fetchAll(silent = false) {
 // 1. Visa cachad data omedelbart (noll fördröjning)
 renderFromCache();
 
-// 2. Hämta färsk data tyst i bakgrunden om cache finns, annars normalt
-const hasSomeCache = getStaleData("crypto_cache") || getStaleData("metals_cache");
+// 2. Hämta färsk data — tyst om cache finns, annars med skeletons
+const hasSomeCache = getStaleData("crypto_cache") ||
+                     METAL_SYMBOLS.some(s => getStaleData(`yahoo_${s.symbol}`));
 fetchAll(/* silent = */ !!hasSomeCache);
 
-// 3. Refresh-knapp rensar alltid cachen och hämtar på nytt
+// 3. Refresh-knapp rensar cache och hämtar på nytt
 document.getElementById("refresh-btn")?.addEventListener("click", () => {
   localStorage.clear();
   fetchAll(false);
 });
 
-// 4. Auto-refresh körs tyst (ingen skeleton-animation)
+// 4. Auto-refresh körs tyst
 setInterval(() => fetchAll(true), REFRESH_INTERVAL_MS);
-
-// Fallback om primär proxy misslyckas
-async function fetchYahooWithFallback(symbol) {
-  const proxies = [
-    url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-  ];
-  const target = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
-  for (const proxy of proxies) {
-    try { return await fetchYahoo(symbol, proxy(target)); } catch {}
-  }
-  throw new Error("All proxies failed");
-}
