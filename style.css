@@ -86,9 +86,12 @@ header h1 {
   transition: background 0.15s;
   white-space: nowrap;
 }
-#refresh-btn:hover { background: rgba(0,0,0,0.05); }
+#refresh-btn:hover  { background: rgba(0,0,0,0.05); }
 #refresh-btn:active { transform: scale(0.97); }
-#refresh-btn.loading #refresh-icon { display: inline-block; animation: spin 0.8s linear infinite; }
+#refresh-btn.loading #refresh-icon {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+}
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
@@ -97,26 +100,20 @@ main {
   max-width: 900px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
-}
-
-.section { margin-bottom: 2rem; }
-
-.section-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: 0.75rem;
-}
-
-/* ── Grid & cards ────────────────────────────────── */
-.grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   gap: 12px;
+  align-items: start;
 }
 
+/* Grids flödar in i förälderns grid */
+#crypto-grid,
+#metals-grid,
+#indices-grid {
+  display: contents;
+}
+
+/* ── Cards ───────────────────────────────────────── */
 .card {
   background: var(--surface);
   border: 0.5px solid var(--border);
@@ -158,9 +155,9 @@ main {
   padding: 2px 9px;
   border-radius: 99px;
 }
-.badge.up   { background: var(--up-bg);   color: var(--up);   }
-.badge.down { background: var(--down-bg); color: var(--down); }
-.badge.flat { background: rgba(0,0,0,0.06); color: var(--muted); }
+.badge.up   { background: var(--up-bg);             color: var(--up);   }
+.badge.down { background: var(--down-bg);            color: var(--down); }
+.badge.flat { background: rgba(0,0,0,0.06);          color: var(--muted); }
 
 .card-error {
   font-size: 12px;
@@ -170,9 +167,10 @@ main {
 
 /* ── Updated timestamp ───────────────────────────── */
 .updated {
+  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--hint);
-  margin-top: 0.5rem;
+  margin-top: 0.25rem;
 }
 
 /* ── Footer ──────────────────────────────────────── */
@@ -183,12 +181,12 @@ footer {
   font-size: 12px;
   color: var(--hint);
 }
-footer a { color: var(--muted); }
-footer a:hover { color: var(--text); }
+footer a       { color: var(--muted); }
+footer a:hover { color: var(--text);  }
 
 /* ── Responsive ──────────────────────────────────── */
 @media (max-width: 480px) {
-  main, footer { padding-left: 1rem; padding-right: 1rem; }
-  .header-inner { flex-direction: column; align-items: flex-start; }
-  .card-price { font-size: 19px; }
+  main, footer      { padding-left: 1rem; padding-right: 1rem; }
+  .header-inner     { flex-direction: column; align-items: flex-start; }
+  .card-price       { font-size: 19px; }
 }
