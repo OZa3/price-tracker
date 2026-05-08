@@ -86,10 +86,25 @@ async function fetchCrypto() {
   const key = "crypto_cache";
   const cached = getCachedData(key);
   if (cached) return cached;
-  const res = await fetchWithTimeout(
-    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true"
-  );
-  const data = await res.json();
+
+  // Primär: CoinGecko
+  try {
+    const res = await fetchWithTimeout(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true"
+    );
+    const data = await res.json();
+    if (data?.bitcoin?.usd) { setCachedData(key, data); return data; }
+  } catch {}
+
+  // Fallback: CoinCap
+  const res2 = await fetchWithTimeout("https://api.coincap.io/v2/assets/bitcoin");
+  const { data: cc } = await res2.json();
+  const data = {
+    bitcoin: {
+      usd: parseFloat(cc.priceUsd),
+      usd_24h_change: parseFloat(cc.changePercent24Hr),
+    }
+  };
   setCachedData(key, data);
   return data;
 }
@@ -118,7 +133,6 @@ async function fetchYahoo(symbol) {
     try {
       const res = await fetchWithTimeout(url);
       const wrapper = await res.json();
-      // allorigins wrapppar svaret i { contents: "..." }
       json = wrapper.contents ? JSON.parse(wrapper.contents) : wrapper;
       break;
     } catch {}
@@ -147,17 +161,24 @@ async function fetchMetals() {
   );
   return results.map((r, i) => {
     if (r.status === "rejected") return makeErrorCard(METAL_SYMBOLS[i].label);
-    const { label, price, decimals } = r.value;
-    return makeCard(label, fmt(price, { decimals }), null);
+    const { label, price, decimals, changePct } = r.value;
+    return makeCard(label, fmt(price, { decimals }), fmtChange(changePct));
   });
 }
 
 // ── Indices ───────────────────────────────────────────────────
 
 const SYMBOLS = [
-  { symbol: "CL=F",  label: "Oil (WTI)", decimals: 2 },
-  { symbol: "SEK=X", label: "USD/SEK",   decimals: 4 },
+  { symbol: "CL=F",     label: "Oil (WTI)", decimals: 2 },
+  { symbol: "SEK=X",    label: "USD/SEK",   decimals: 4 },
+  { symbol: "EURSEK=X", label: "EUR/SEK",   decimals: 4 },
 ];
+
+function formatIndexPrice(label, price, decimals) {
+  return (label === "USD/SEK" || label === "EUR/SEK")
+    ? price.toFixed(4) + " kr"
+    : fmt(price, { decimals });
+}
 
 async function fetchIndices() {
   const results = await Promise.allSettled(
@@ -166,10 +187,7 @@ async function fetchIndices() {
   return results.map((r, i) => {
     if (r.status === "rejected") return makeErrorCard(SYMBOLS[i].label);
     const { label, price, changePct, decimals } = r.value;
-    const priceStr = label === "USD/SEK"
-      ? price.toFixed(4) + " kr"
-      : fmt(price, { decimals });
-    return makeCard(label, priceStr, fmtChange(changePct));
+    return makeCard(label, formatIndexPrice(label, price, decimals), fmtChange(changePct));
   });
 }
 
@@ -189,7 +207,7 @@ function renderFromCache() {
     const idx = METAL_SYMBOLS.findIndex(s => s.symbol === symbol);
     const skeleton = grid.children[idx];
     if (skeleton?.classList.contains("skeleton")) {
-      grid.replaceChild(makeCard(label, fmt(d.price, { decimals }), null), skeleton);
+      grid.replaceChild(makeCard(label, fmt(d.price, { decimals }), fmtChange(d.changePct)), skeleton);
     }
   });
 
@@ -197,15 +215,15 @@ function renderFromCache() {
   SYMBOLS.forEach(({ symbol, label, decimals }) => {
     const d = getStaleData(`yahoo_${symbol}`);
     if (!d) return;
-    const priceStr = label === "USD/SEK"
-      ? d.price.toFixed(4) + " kr"
-      : fmt(d.price, { decimals });
     const grid = document.getElementById("indices-grid");
     if (!grid) return;
     const idx = SYMBOLS.findIndex(s => s.symbol === symbol);
     const skeleton = grid.children[idx];
     if (skeleton?.classList.contains("skeleton")) {
-      grid.replaceChild(makeCard(label, priceStr, fmtChange(d.changePct)), skeleton);
+      grid.replaceChild(
+        makeCard(label, formatIndexPrice(label, d.price, decimals), fmtChange(d.changePct)),
+        skeleton
+      );
     }
   });
 }
@@ -261,3 +279,21 @@ document.getElementById("refresh-btn")?.addEventListener("click", () => {
 
 // 4. Auto-refresh körs tyst
 setInterval(() => fetchAll(true), REFRESH_INTERVAL_MS);
+
+// 5. Uppdatera när användaren återvänder till fliken
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+
+  // Kolla om senaste refresh var mer än 60 sekunder sedan
+  const keys = ["crypto_cache", ...METAL_SYMBOLS.map(s => `yahoo_${s.symbol}`), ...SYMBOLS.map(s => `yahoo_${s.symbol}`)];
+  const oldest = keys.reduce((min, key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return 0;
+      return Math.min(min, JSON.parse(raw).timestamp);
+    } catch { return 0; }
+  }, Date.now());
+
+  const ageSeconds = (Date.now() - oldest) / 1000;
+  if (ageSeconds > 60) fetchAll(true);
+});
