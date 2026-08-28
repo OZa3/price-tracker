@@ -4,15 +4,18 @@ A clean, lightweight website that shows live prices for Bitcoin, Ethereum, Gold,
 
 **Live data sources:**
 - 🪙 Crypto → [CoinGecko](https://www.coingecko.com) (free, no API key)
-- 🥇 Metals → [metals.live](https://metals.live) (free, no API key)
+- 🥇 Metals → Yahoo Finance (via CORS proxy)
 - 📊 Indices → Yahoo Finance (via CORS proxy)
+- 💱 FX → [Frankfurter](https://www.frankfurter.app) (free, no API key)
 
 **Features:**
-- Auto-refreshes every 60 seconds
+- Auto-refreshes on a selectable interval
 - Manual refresh button
 - 24h % change badges
 - Dark mode support
 - Mobile-friendly
+- Built-in controls to hide/show sections
+- Refresh interval picker saved in your browser
 
 ---
 
@@ -63,8 +66,10 @@ https://YOUR_USERNAME.github.io/price-tracker/
 
 ## 🛠 Customization
 
-**Add more cryptos:** Edit the `ids` variable in `app.js` (use CoinGecko IDs like `dogecoin`, `cardano`, etc.)
+**Show or hide sections:** Use the checkboxes in the top bar to toggle Crypto, Metals, and Indices.
 
-**Change refresh interval:** Edit `REFRESH_INTERVAL_MS` in `app.js` (value is in milliseconds)
+**Change refresh interval:** Use the Refresh dropdown in the top bar. It is saved in your browser.
 
-**Add more metals:** Edit the URL in `fetchMetals()` — supported: `gold`, `silver`, `platinum`, `palladium`
+**Reset everything:** Click Reset to restore the default layout and refresh interval.
+
+**Add more cryptos or markets:** Edit the asset lists in `app.js` and extend the matching section renderers.
