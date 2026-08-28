@@ -45,6 +45,7 @@ function setCachedData(key, data) {
 function getCacheKeys() {
   return [
     "crypto_cache",
+    "tesla_stock_cache",
     ...METAL_SYMBOLS.map(s => `yahoo_${s.symbol}`),
     ...SYMBOLS.map(s => s.kind === "fx" ? `fx_${s.base}_${s.quote}` : `yahoo_${s.symbol}`),
   ];
@@ -78,11 +79,28 @@ function fmtChange(pct) {
   return { text: `${sign}${pct.toFixed(2)}%`, cls: pct >= 0 ? "up" : "down" };
 }
 
+function formatDaysToReport(reportDate) {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(reportDate);
+  end.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((end - start) / 86_400_000));
+}
+
 function makeCard(name, priceStr, changeObj) {
   const card = document.createElement("div");
   card.className = "card";
   const badge = changeObj ? `<span class="badge ${changeObj.cls}">${changeObj.text}</span>` : "";
   card.innerHTML = `<div class="card-name">${name}</div><div class="card-price">${priceStr}</div>${badge}`;
+  return card;
+}
+
+function makeTeslaCard(name, priceStr, changeObj, daysToReport) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const badge = changeObj ? `<span class="badge ${changeObj.cls}">${changeObj.text}</span>` : "";
+  const daysText = daysToReport == null ? "Next report: —" : `Next report: ${daysToReport} days`;
+  card.innerHTML = `<div class="card-name">${name}</div><div class="card-price">${priceStr}</div>${badge}<div class="card-subtext">${daysText}</div>`;
   return card;
 }
 
@@ -104,6 +122,8 @@ function setSkeletons(id, n) {
 }
 
 // ── Crypto ────────────────────────────────────────────────────
+
+const TESLA_CACHE_KEY = "tesla_stock_cache";
 
 async function fetchCrypto() {
   const key = "crypto_cache";
@@ -132,10 +152,54 @@ async function fetchCrypto() {
   return data;
 }
 
-function buildCryptoCards(data) {
+function parseNumberMatch(text, pattern) {
+  const match = text.match(pattern);
+  return match ? Number(match[1]) : null;
+}
+
+async function fetchTeslaMarketCard() {
+  const cached = getCachedData(TESLA_CACHE_KEY);
+  if (cached) return cached;
+
+  const url = `https://r.jina.ai/http://finance.yahoo.com/quote/TSLA?p=TSLA`;
+  const res = await fetchWithTimeout(url, { timeout: 15000 });
+  const text = await res.text();
+
+  const bid = parseNumberMatch(text, /Bid\s+([0-9]+(?:\.[0-9]+)?)\s+x\s+[0-9]+/i);
+  const ask = parseNumberMatch(text, /Ask\s+([0-9]+(?:\.[0-9]+)?)\s+x\s+[0-9]+/i);
+  const previousClose = parseNumberMatch(text, /Previous Close\s+([0-9]+(?:\.[0-9]+)?)/i);
+  const reportDateText = text.match(/Earnings Date \(est\.\)([A-Za-z]{3}\s+\d{1,2},\s+\d{4})/i)?.[1];
+  const reportDate = reportDateText ? new Date(reportDateText) : null;
+
+  const price = bid && ask ? (bid + ask) / 2 : (bid || ask || previousClose || null);
+  if (!price) throw new Error("Could not read Tesla price");
+
+  const changePct = previousClose ? ((price - previousClose) / previousClose) * 100 : null;
+  const data = {
+    price,
+    changePct,
+    daysToReport: reportDate ? formatDaysToReport(reportDate) : null,
+  };
+  setCachedData(TESLA_CACHE_KEY, data);
+  return data;
+}
+
+function buildCryptoCards(data, teslaData) {
+  const cards = [];
   const btc = data?.bitcoin;
-  if (!btc) return [makeErrorCard("Bitcoin")];
-  return [makeCard("Bitcoin (BTC)", fmt(btc.usd, { decimals: 0 }), fmtChange(btc.usd_24h_change))];
+  if (btc) {
+    cards.push(makeCard("Bitcoin (BTC)", fmt(btc.usd, { decimals: 0 }), fmtChange(btc.usd_24h_change)));
+  } else {
+    cards.push(makeErrorCard("Bitcoin"));
+  }
+
+  if (teslaData?.price) {
+    cards.push(makeTeslaCard("Tesla (TSLA)", fmt(teslaData.price, { decimals: 2 }), fmtChange(teslaData.changePct), teslaData.daysToReport));
+  } else {
+    cards.push(makeErrorCard("Tesla (TSLA)"));
+  }
+
+  return cards;
 }
 
 // ── Yahoo Finance (används för metals + indices) ──────────────
@@ -145,24 +209,26 @@ async function fetchYahoo(symbol) {
   const cached = getCachedData(key);
   if (cached) return cached;
 
-  const target = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
-  const proxies = [
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
-    `https://api.allorigins.win/get?url=${encodeURIComponent(target)}`,
-    `https://corsproxy.io/?${encodeURIComponent(target)}`,
-  ];
+  const target = `https://r.jina.ai/http://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=2d`;
 
   let json = null;
-  for (const url of proxies) {
-    try {
-      const res = await fetchWithTimeout(url);
-      const text = await res.text();
-      const wrapper = JSON.parse(text);
-      json = wrapper.contents ? JSON.parse(wrapper.contents) : wrapper;
-      if (json?.chart?.result?.length) break;
-    } catch {}
-  }
-  if (!json) throw new Error(`All proxies failed for ${symbol}`);
+  try {
+    const res = await fetchWithTimeout(target, { timeout: 15000 });
+    const text = await res.text();
+    const trimmed = text.trim();
+
+    if (trimmed.startsWith("{")) {
+      json = JSON.parse(trimmed);
+    } else {
+      const start = trimmed.indexOf("{");
+      const end = trimmed.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        json = JSON.parse(trimmed.slice(start, end + 1));
+      }
+    }
+  } catch {}
+
+  if (!json?.chart?.result?.length) throw new Error(`Yahoo data failed for ${symbol}`);
 
   const result = json.chart.result[0];
   const closes = result.indicators.quote[0].close.filter(Boolean);
@@ -242,7 +308,8 @@ async function fetchIndices() {
 function renderFromCache() {
   // Crypto
   const cryptoStale = getStaleData("crypto_cache");
-  if (cryptoStale) setGrid("crypto-grid", buildCryptoCards(cryptoStale));
+  const teslaStale = getStaleData(TESLA_CACHE_KEY);
+  if (cryptoStale || teslaStale) setGrid("crypto-grid", buildCryptoCards(cryptoStale, teslaStale));
 
   // Metals
   METAL_SYMBOLS.forEach(({ symbol, label, decimals }) => {
@@ -281,7 +348,7 @@ async function fetchAll(silent = false) {
   if (btn) btn.classList.add("loading");
 
   if (!silent) {
-    if (!getStaleData("crypto_cache")) setSkeletons("crypto-grid", 1);
+    if (!getStaleData("crypto_cache") || !getStaleData(TESLA_CACHE_KEY)) setSkeletons("crypto-grid", 2);
     const hasAllMetals  = METAL_SYMBOLS.every(s => getStaleData(`yahoo_${s.symbol}`));
     const hasAllIndices = SYMBOLS.every(s => {
       const key = s.kind === "fx" ? `fx_${s.base}_${s.quote}` : `yahoo_${s.symbol}`;
@@ -291,9 +358,19 @@ async function fetchAll(silent = false) {
     if (!hasAllIndices) setSkeletons("indices-grid",  SYMBOLS.length);
   }
 
-  const p1 = fetchCrypto()
-    .then(d => setGrid("crypto-grid", buildCryptoCards(d)))
-    .catch(() => setGrid("crypto-grid", [makeErrorCard("Bitcoin")]));
+  const p1 = Promise.all([
+    fetchCrypto(),
+    fetchTeslaMarketCard().catch(() => null),
+  ])
+    .then(([d, teslaData]) => setGrid("crypto-grid", buildCryptoCards(d, teslaData)))
+    .catch(async () => {
+      try {
+        const teslaData = await fetchTeslaMarketCard();
+        setGrid("crypto-grid", buildCryptoCards(null, teslaData));
+      } catch {
+        setGrid("crypto-grid", [makeErrorCard("Bitcoin"), makeErrorCard("Tesla (TSLA)")]);
+      }
+    });
 
   const p2 = fetchMetals()
     .then(cards => setGrid("metals-grid", cards))
@@ -317,6 +394,7 @@ renderFromCache();
 
 // 2. Hämta färsk data — tyst om cache finns, annars med skeletons
 const hasSomeCache = getStaleData("crypto_cache") ||
+                     getStaleData(TESLA_CACHE_KEY) ||
                      METAL_SYMBOLS.some(s => getStaleData(`yahoo_${s.symbol}`));
 fetchAll(/* silent = */ !!hasSomeCache);
 
@@ -324,10 +402,6 @@ fetchAll(/* silent = */ !!hasSomeCache);
 document.getElementById("refresh-btn")?.addEventListener("click", () => {
   clearMarketCache();
   fetchAll(false);
-});
-
-document.getElementById("tesla-page-btn")?.addEventListener("click", () => {
-  window.location.href = "stock.html";
 });
 
 // 4. Auto-refresh körs tyst
@@ -347,6 +421,5 @@ document.addEventListener("visibilitychange", () => {
     } catch { return 0; }
   }, Date.now());
 
-  const ageSeconds = (Date.now() - oldest) / 1000;
-  if (ageSeconds * 1000 > getRefreshIntervalMs()) fetchAll(true);
+  if (Date.now() - oldest > REFRESH_INTERVAL_MS) fetchAll(true);
 });

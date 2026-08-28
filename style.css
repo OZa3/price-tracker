@@ -117,18 +117,26 @@ header h1 {
   outline: none;
 }
 
-.header-actions button {
+.header-actions button,
+.header-actions .button-link,
+.header-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 0.5px solid var(--border);
   border-radius: 999px;
   padding: 7px 14px;
   font-size: 13px;
   color: var(--text);
+  text-decoration: none;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
 
-.header-actions button:hover {
+.header-actions button:hover,
+.header-actions .button-link:hover,
+.header-button:hover {
   background: rgba(0,0,0,0.05);
   border-color: var(--border-strong);
 }
@@ -208,6 +216,12 @@ main {
   color: var(--text);
   margin-bottom: 8px;
   white-space: nowrap;
+}
+
+.card-subtext {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
 }
 
 .badge {
@@ -296,8 +310,9 @@ footer a:hover { color: var(--text);  }
 
 .stocks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+  align-items: stretch;
 }
 
 .stock-card {
@@ -305,7 +320,7 @@ footer a:hover { color: var(--text);  }
   border: 0.5px solid var(--border);
   border-radius: 16px;
   background: var(--surface);
-  min-height: 170px;
+  min-height: 150px;
   display: grid;
   gap: 0.7rem;
 }
@@ -331,8 +346,9 @@ footer a:hover { color: var(--text);  }
 
 .stock-prev-close {
   font-size: 11px;
-  color: var(--hint);
+  color: var(--muted);
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .stock-price {
