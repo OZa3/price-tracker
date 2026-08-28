@@ -15,27 +15,7 @@
         <p class="subtitle">Live crypto, metals &amp; indices</p>
       </div>
       <div class="header-actions">
-        <label class="control control-inline">
-          <input type="checkbox" id="toggle-crypto" data-section-toggle="crypto" checked />
-          Crypto
-        </label>
-        <label class="control control-inline">
-          <input type="checkbox" id="toggle-metals" data-section-toggle="metals" checked />
-          Metals
-        </label>
-        <label class="control control-inline">
-          <input type="checkbox" id="toggle-indices" data-section-toggle="indices" checked />
-          Indices
-        </label>
-        <label class="control control-select" for="refresh-interval">
-          Refresh
-          <select id="refresh-interval">
-            <option value="1">1 min</option>
-            <option value="5" selected>5 min</option>
-            <option value="15">15 min</option>
-          </select>
-        </label>
-        <button id="reset-layout" type="button">Reset</button>
+        <button id="tesla-page-btn" type="button">Stocks</button>
         <button id="refresh-btn" type="button">
           <span id="refresh-icon">↺</span> Refresh
         </button>
@@ -44,35 +24,20 @@
   </header>
 
   <main>
-    <section class="market-section" data-section="crypto">
-      <div class="section-head">
-        <h2>Crypto</h2>
-      </div>
-      <div class="grid" id="crypto-grid">
-        <div class="card skeleton"></div>
-      </div>
-    </section>
+    <div class="grid" id="crypto-grid">
+      <div class="card skeleton"></div>
+    </div>
 
-    <section class="market-section" data-section="metals">
-      <div class="section-head">
-        <h2>Metals</h2>
-      </div>
-      <div class="grid" id="metals-grid">
-        <div class="card skeleton"></div>
-        <div class="card skeleton"></div>
-      </div>
-    </section>
+    <div class="grid" id="metals-grid">
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+    </div>
 
-    <section class="market-section" data-section="indices">
-      <div class="section-head">
-        <h2>Indices &amp; FX</h2>
-      </div>
-      <div class="grid" id="indices-grid">
-        <div class="card skeleton"></div>
-        <div class="card skeleton"></div>
-        <div class="card skeleton"></div>
-      </div>
-    </section>
+    <div class="grid" id="indices-grid">
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+      <div class="card skeleton"></div>
+    </div>
 
     <p class="updated" id="updated-time">Fetching prices…</p>
   </main>

@@ -4,19 +4,8 @@
 
 const REFRESH_INTERVAL_MS = 300_000;
 const CACHE_TIME_MS       = 300_000;
-const PREF_KEY            = "market_tracker_prefs";
-
-const DEFAULT_PREFS = {
-  sections: {
-    crypto: true,
-    metals: true,
-    indices: true,
-  },
-  refreshMinutes: REFRESH_INTERVAL_MS / 60_000,
-};
 
 let autoRefreshTimer = null;
-let prefs = loadPrefs();
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -53,35 +42,6 @@ function setCachedData(key, data) {
   } catch {}
 }
 
-function cloneDefaultPrefs() {
-  return JSON.parse(JSON.stringify(DEFAULT_PREFS));
-}
-
-function loadPrefs() {
-  try {
-    const raw = localStorage.getItem(PREF_KEY);
-    if (!raw) return cloneDefaultPrefs();
-
-    const parsed = JSON.parse(raw);
-    return {
-      sections: {
-        ...DEFAULT_PREFS.sections,
-        ...(parsed.sections || {}),
-      },
-      refreshMinutes: [1, 5, 15].includes(parsed.refreshMinutes) ? parsed.refreshMinutes : DEFAULT_PREFS.refreshMinutes,
-    };
-  } catch {
-    return cloneDefaultPrefs();
-  }
-}
-
-function savePrefs(nextPrefs) {
-  prefs = nextPrefs;
-  try {
-    localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-  } catch {}
-}
-
 function getCacheKeys() {
   return [
     "crypto_cache",
@@ -90,41 +50,9 @@ function getCacheKeys() {
   ];
 }
 
-function getRefreshIntervalMs() {
-  return prefs.refreshMinutes * 60_000;
-}
-
-function isSectionVisible(section) {
-  return prefs.sections[section] !== false;
-}
-
-function setSectionVisibility(section, visible) {
-  const wrapper = document.querySelector(`.market-section[data-section="${section}"]`);
-  if (wrapper) wrapper.hidden = !visible;
-}
-
-function updateRefreshLabel() {
-  const label = document.getElementById("refresh-label");
-  if (!label) return;
-  label.textContent = prefs.refreshMinutes === 1 ? "1 minute" : `${prefs.refreshMinutes} minutes`;
-}
-
-function applyPrefsToUI() {
-  ["crypto", "metals", "indices"].forEach(section => {
-    const toggle = document.getElementById(`toggle-${section}`);
-    if (toggle) toggle.checked = isSectionVisible(section);
-    setSectionVisibility(section, isSectionVisible(section));
-  });
-
-  const intervalSelect = document.getElementById("refresh-interval");
-  if (intervalSelect) intervalSelect.value = String(prefs.refreshMinutes);
-
-  updateRefreshLabel();
-}
-
 function restartAutoRefresh() {
   if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  autoRefreshTimer = setInterval(() => fetchAll(true), getRefreshIntervalMs());
+  autoRefreshTimer = setInterval(() => fetchAll(true), REFRESH_INTERVAL_MS);
 }
 
 function clearMarketCache() {
@@ -353,43 +281,29 @@ async function fetchAll(silent = false) {
   if (btn) btn.classList.add("loading");
 
   if (!silent) {
-    if (isSectionVisible("crypto") && !getStaleData("crypto_cache")) setSkeletons("crypto-grid", 1);
+    if (!getStaleData("crypto_cache")) setSkeletons("crypto-grid", 1);
     const hasAllMetals  = METAL_SYMBOLS.every(s => getStaleData(`yahoo_${s.symbol}`));
     const hasAllIndices = SYMBOLS.every(s => {
       const key = s.kind === "fx" ? `fx_${s.base}_${s.quote}` : `yahoo_${s.symbol}`;
       return getStaleData(key);
     });
-    if (isSectionVisible("metals") && !hasAllMetals)  setSkeletons("metals-grid",  METAL_SYMBOLS.length);
-    if (isSectionVisible("indices") && !hasAllIndices) setSkeletons("indices-grid",  SYMBOLS.length);
+    if (!hasAllMetals)  setSkeletons("metals-grid",  METAL_SYMBOLS.length);
+    if (!hasAllIndices) setSkeletons("indices-grid",  SYMBOLS.length);
   }
 
-  const tasks = [];
+  const p1 = fetchCrypto()
+    .then(d => setGrid("crypto-grid", buildCryptoCards(d)))
+    .catch(() => setGrid("crypto-grid", [makeErrorCard("Bitcoin")]));
 
-  if (isSectionVisible("crypto")) {
-    tasks.push(
-      fetchCrypto()
-        .then(d => setGrid("crypto-grid", buildCryptoCards(d)))
-        .catch(() => setGrid("crypto-grid", [makeErrorCard("Bitcoin")]))
-    );
-  }
+  const p2 = fetchMetals()
+    .then(cards => setGrid("metals-grid", cards))
+    .catch(() => setGrid("metals-grid", [makeErrorCard("Gold"), makeErrorCard("Silver")]));
 
-  if (isSectionVisible("metals")) {
-    tasks.push(
-      fetchMetals()
-        .then(cards => setGrid("metals-grid", cards))
-        .catch(() => setGrid("metals-grid", [makeErrorCard("Gold"), makeErrorCard("Silver")]))
-    );
-  }
+  const p3 = fetchIndices()
+    .then(cards => setGrid("indices-grid", cards))
+    .catch(() => {});
 
-  if (isSectionVisible("indices")) {
-    tasks.push(
-      fetchIndices()
-        .then(cards => setGrid("indices-grid", cards))
-        .catch(() => {})
-    );
-  }
-
-  await Promise.allSettled(tasks);
+  await Promise.allSettled([p1, p2, p3]);
 
   const timeEl = document.getElementById("updated-time");
   if (timeEl) timeEl.textContent = "Senast uppdaterad: " + new Date().toLocaleTimeString();
@@ -399,7 +313,6 @@ async function fetchAll(silent = false) {
 // ── Initiering ────────────────────────────────────────────────
 
 // 1. Visa cachad data omedelbart (noll fördröjning)
-applyPrefsToUI();
 renderFromCache();
 
 // 2. Hämta färsk data — tyst om cache finns, annars med skeletons
@@ -413,45 +326,11 @@ document.getElementById("refresh-btn")?.addEventListener("click", () => {
   fetchAll(false);
 });
 
-// 4. Inställningar för vy och uppdateringsintervall
-document.querySelectorAll("[data-section-toggle]").forEach(input => {
-  input.addEventListener("change", () => {
-    const section = input.getAttribute("data-section-toggle");
-    if (!section) return;
-
-    savePrefs({
-      ...prefs,
-      sections: {
-        ...prefs.sections,
-        [section]: input.checked,
-      },
-    });
-
-    applyPrefsToUI();
-
-    if (input.checked) fetchAll(true);
-  });
+document.getElementById("tesla-page-btn")?.addEventListener("click", () => {
+  window.location.href = "stock.html";
 });
 
-document.getElementById("refresh-interval")?.addEventListener("change", event => {
-  const value = Number(event.target.value);
-  savePrefs({
-    ...prefs,
-    refreshMinutes: [1, 5, 15].includes(value) ? value : DEFAULT_PREFS.refreshMinutes,
-  });
-  applyPrefsToUI();
-  restartAutoRefresh();
-});
-
-document.getElementById("reset-layout")?.addEventListener("click", () => {
-  savePrefs(cloneDefaultPrefs());
-  applyPrefsToUI();
-  restartAutoRefresh();
-  renderFromCache();
-  fetchAll(false);
-});
-
-// 5. Auto-refresh körs tyst
+// 4. Auto-refresh körs tyst
 restartAutoRefresh();
 
 // 6. Uppdatera när användaren återvänder till fliken

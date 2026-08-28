@@ -16,6 +16,7 @@ A clean, lightweight website that shows live prices for Bitcoin, Ethereum, Gold,
 - Mobile-friendly
 - Built-in controls to hide/show sections
 - Refresh interval picker saved in your browser
+- Stocks page with Tesla plus other watchlist names
 
 ---
 
@@ -73,3 +74,5 @@ https://YOUR_USERNAME.github.io/price-tracker/
 **Reset everything:** Click Reset to restore the default layout and refresh interval.
 
 **Add more cryptos or markets:** Edit the asset lists in `app.js` and extend the matching section renderers.
+
+**Stocks page:** Click the Stocks button in the header to open the separate watchlist view.
